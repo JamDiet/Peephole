@@ -1,6 +1,8 @@
 __pycache__/
 venv/
+logs/
 
 *.jpg
 *.json
 *.pth
+*.db
