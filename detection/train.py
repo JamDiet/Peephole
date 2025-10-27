@@ -1,12 +1,12 @@
 from torch import load, nn, optim
 from torch.utils.tensorboard import SummaryWriter
-from models import FaceTracker
+from facetracker import FaceTracker
 from utils import load_data, get_ciou, train_loop, test_loop
 
 # Load existing model weights
 model = FaceTracker()
-model_name = 'firecracker'
-model.load_state_dict(load(f'model_weights\\{model_name}.pth', weights_only=True))
+model_name = 'test'
+model.load_state_dict(load(f'detection\\model_weights\\{model_name}.pth', weights_only=True))
 
 # Specify training parameters
 learning_rate = 1e-4
@@ -21,7 +21,7 @@ lloss_fn = get_ciou
 
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-writer = SummaryWriter(log_dir='logs')
+writer = SummaryWriter(log_dir='detection\\logs\\facetracker')
 
 for t in range(epochs):
     print(f"Epoch {t+1}\n-------------------------------")

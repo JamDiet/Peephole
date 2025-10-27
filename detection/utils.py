@@ -228,7 +228,7 @@ def train_loop(dataloader,
 
             # Save weights
             if model_name != None:
-                torch.save(model.state_dict(), f'model_weights\\{model_name}.pth')
+                torch.save(model.state_dict(), f'detection\\model_weights\\{model_name}.pth')
 
 def test_loop(dataloader, model, epoch: int=None, writer: SummaryWriter=None):
     model.eval()
