@@ -6,22 +6,26 @@ class FaceTracker(nn.Module):
     Custom PyTorch neural network based on the MobileNet V3 architecture.
     Splits into two heads for object classification and bounding box predictions.
     '''
-    def __init__(self, cw: float=1., lw: float=1.):
+    def __init__(self, cw: float=.5, lw: float=.5):
         super().__init__()
         self.cw = cw
         self.lw = lw
         self.body = mobilenet_v3_large().features
         self.neck = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
-            nn.Flatten(),
-            nn.Linear(960, 2048),
-            nn.ReLU()
+            nn.Flatten()
         )
         self.classifier = nn.Sequential(
+            nn.Linear(960, 2048),
+            nn.ReLU(),
             nn.Linear(2048, 1),
             nn.Sigmoid()
         )
-        self.regression = nn.Linear(2048, 4)
+        self.regression = nn.Sequential(
+            nn.Linear(960, 2048),
+            nn.ReLU(),
+            nn.Linear(2048, 4)
+        )
     
     def forward(self, x):
         x = self.neck(self.body(x))
@@ -30,5 +34,5 @@ class FaceTracker(nn.Module):
         return class_pred, bbox_pred
 
 if __name__ == '__main__':
-    model_name = 'test'
+    model_name = 'firecracker'
     save(FaceTracker().state_dict(), f'detection\\model_weights\\{model_name}.pth')

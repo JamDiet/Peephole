@@ -5,6 +5,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision.io import decode_image
 from torch.utils.tensorboard import SummaryWriter
+from optuna import load_study
 
 class CustomImageDataset(Dataset):
     '''Create PyTorch image dataset for single class and bounding box predictions.'''
@@ -253,3 +254,30 @@ def test_loop(dataloader, model, epoch: int=None, writer: SummaryWriter=None):
         writer.add_scalar('bbox_accuracy', 100. * bbox_accuracy, epoch)
     
     return class_accuracy, bbox_accuracy
+
+def load_best_params():
+    '''
+    Load the best hyperparameters from an existing Optuna study.
+
+    Returns
+    -------
+    learning_rate : float
+        Model learning rate.
+    cw : float
+        Normalized weight for class prediction loss.
+    bw : float
+        Normalized weight for bounding box prediction loss.
+    '''
+    study = load_study(study_name='facetracker_optimization',
+                       storage='sqlite:///detection/logs/optuna/history.db')
+    best_params = study.best_trial.params
+    learning_rate = best_params['learning_rate']
+    class_weight = best_params['class_weight']
+    bbox_weight = best_params['bbox_weight']
+
+    # Normalize class and bounding box weights
+    weight_sum = class_weight + bbox_weight
+    cw = class_weight / weight_sum
+    bw = bbox_weight / weight_sum
+
+    return learning_rate, cw, bw

@@ -1,6 +1,5 @@
 from optuna import create_study
 from torch import optim, nn
-from numpy import std
 from facetracker import FaceTracker
 from utils import load_data, train_loop, test_loop, get_ciou
 
@@ -31,7 +30,7 @@ class ObjectiveContainer():
         
         class_accuracy, bbox_accuracy = test_loop(self.test_dataloader, model)
 
-        return class_accuracy + bbox_accuracy - std([class_accuracy, bbox_accuracy])
+        return class_accuracy + bbox_accuracy
 
 if __name__ == '__main__':
     # Training parameters
@@ -47,7 +46,7 @@ if __name__ == '__main__':
                              lloss_fn=lloss_fn,
                              batch_size=batch_size)
     
-    study = create_study(study_name="facetracker_optimization_std",
+    study = create_study(study_name="facetracker_optimization",
                          storage="sqlite:///detection/logs/optuna/history.db",
                          direction="maximize",
                          load_if_exists=True)
