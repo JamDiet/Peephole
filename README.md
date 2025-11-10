@@ -1,0 +1,1 @@
+Face detection model trained on data from https://zenodo.org/records/14474899
