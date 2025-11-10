@@ -186,6 +186,21 @@ def get_ciou(y_true, yhat):
     ar_loss = alpha * v
 
     return torch.mean(1 - iou + d_loss + ar_loss)
+
+def localization_loss(y_true, yhat):
+    coord_diff = torch.mean(torch.square(y_true[:, :2] - yhat[:, :2]))
+
+    true_width = y_true[:, 2] - y_true[:, 0]
+    true_height = y_true[:, 3] - y_true[:, 1]
+
+    pred_width = yhat[:, 2] - yhat[:, 0]
+    pred_height = yhat[:, 3] - yhat[:, 1]
+
+    dim_diff = torch.mean(torch.square(true_width - pred_width) +
+                          torch.square(true_height - pred_height))
+    
+    return coord_diff + dim_diff
+
     
 def train_loop(dataloader,
                model,
@@ -195,7 +210,9 @@ def train_loop(dataloader,
                batch_size: int,
                epoch: int=None,
                model_name: str=None,
-               writer: SummaryWriter=None):
+               writer: SummaryWriter=None,
+               class_weight: float=.5,
+               bbox_weight: float=.5):
     size = len(dataloader.dataset)
     num_batches = len(dataloader)
     model.train()
@@ -206,8 +223,8 @@ def train_loop(dataloader,
         class_pred = class_pred.squeeze(1)
 
         # Calculate class and localization losses
-        closs = closs_fn(class_pred, y)
-        lloss = lloss_fn(z, bbox_pred)
+        closs = class_weight * closs_fn(class_pred, y)
+        lloss = bbox_weight * lloss_fn(z, bbox_pred)
         loss = closs + lloss
 
         # Log losses
@@ -255,9 +272,14 @@ def test_loop(dataloader, model, epoch: int=None, writer: SummaryWriter=None):
     
     return class_accuracy, bbox_accuracy
 
-def load_best_params():
+def load_best_params(model_name=str):
     '''
     Load the best hyperparameters from an existing Optuna study.
+
+    Parameters
+    ----------
+    model_name : str
+        Name of model for which parameters are to be loaded.
 
     Returns
     -------
@@ -268,7 +290,7 @@ def load_best_params():
     bw : float
         Normalized weight for bounding box prediction loss.
     '''
-    study = load_study(study_name='facetracker_optimization',
+    study = load_study(study_name=model_name,
                        storage='sqlite:///detection/logs/optuna/history.db')
     best_params = study.best_trial.params
     learning_rate = best_params['learning_rate']
@@ -276,8 +298,7 @@ def load_best_params():
     bbox_weight = best_params['bbox_weight']
 
     # Normalize class and bounding box weights
-    weight_sum = class_weight + bbox_weight
-    cw = class_weight / weight_sum
-    bw = bbox_weight / weight_sum
+    cw = class_weight / (class_weight + bbox_weight)
+    bw = 1. - cw
 
     return learning_rate, cw, bw
