@@ -2,3 +2,5 @@ numpy
 optuna
 torch
 torchvision
+tensorboard
+matplotlib

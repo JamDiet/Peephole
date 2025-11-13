@@ -4,8 +4,10 @@ import math
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision.io import decode_image
-from torch.utils.tensorboard import SummaryWriter
 from optuna import load_study
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+from numpy import random
 
 class CustomImageDataset(Dataset):
     '''Create PyTorch image dataset for single class and bounding box predictions.'''
@@ -61,7 +63,7 @@ def load_data(batch_size: int):
     testing_data = CustomImageDataset('test')
     test_dataloader = DataLoader(testing_data, batch_size=batch_size, shuffle=True)
 
-    return train_dataloader, test_dataloader
+    return train_dataloader, test_dataloader, testing_data
 
 def get_iou(y_true, yhat):
     """
@@ -105,7 +107,6 @@ def get_iou(y_true, yhat):
     union = true_area + pred_area - i_area
 
     return i_area / (union + eps)
-
     
 def get_ciou(y_true, yhat):
     """
@@ -200,7 +201,6 @@ def localization_loss(y_true, yhat):
                           torch.square(true_height - pred_height))
     
     return coord_diff + dim_diff
-
     
 def train_loop(dataloader,
                model,
@@ -210,7 +210,7 @@ def train_loop(dataloader,
                batch_size: int,
                epoch: int=None,
                model_name: str=None,
-               writer: SummaryWriter=None,
+               writer=None,
                class_weight: float=.5,
                bbox_weight: float=.5):
     size = len(dataloader.dataset)
@@ -246,9 +246,9 @@ def train_loop(dataloader,
 
             # Save weights
             if model_name != None:
-                torch.save(model.state_dict(), f'detection\\model_weights\\{model_name}.pth')
+                torch.save(model.state_dict(), os.path.join('detection', 'model_weights', f'{model_name}.pth'))
 
-def test_loop(dataloader, model, epoch: int=None, writer: SummaryWriter=None):
+def test_loop(dataloader, model, epoch: int=None, writer=None):
     model.eval()
     size = len(dataloader.dataset)
     class_accuracy, bbox_accuracy = 0., 0.
@@ -302,3 +302,68 @@ def load_best_params(model_name=str):
     bw = 1. - cw
 
     return learning_rate, cw, bw
+
+def annotate_image(image: torch.Tensor,
+                   bbox_list: list,
+                   img_dest: str):
+    '''
+    Display a bounding box over an image.
+
+    Parameters
+    ----------
+    image : torch.Tensor
+        Decoded image as tensor of shape (C, W, H).
+    bbox : list | torch.Tensor
+        Bounding box coordinate list or tensor of form [x1, y1, x2, y2].
+    img_dest : str
+        File destination for annotated image.
+    '''
+    dimensions = [image.shape[1], image.shape[2]] * 2
+    colors = ['g', 'r', 'b', 'y', 'm', 'c', 'k', 'w']
+
+    # Plot image to be annotated
+    image = torch.permute(image, (1, 2, 0)).tolist()
+    fig, ax = plt.subplots()
+    ax.imshow(image)
+
+    for i, bbox in enumerate(bbox_list):
+        # Make bounding box
+        bbox_coords = [b * d for b, d in zip(bbox, dimensions)]
+        r_width = bbox_coords[2] - bbox_coords[0]
+        r_height = bbox_coords[3] - bbox_coords[1]
+        rect = patches.Rectangle((bbox_coords[0], bbox_coords[1]), r_width, r_height, fill=False)
+        rect.set_edgecolor(colors[i % 8])
+
+        # Add bounding box to annotated image
+        ax.add_patch(rect)
+
+    ax.set_axis_off()
+    fig.savefig(img_dest)
+
+def random_annotation(model,
+                      dataset: Dataset,
+                      img_dest: str):
+    '''
+    Display predicted bounding box on a random dataset element to visualize model accuracy.
+
+    Parameters
+    ----------
+    model
+        A PyTorch CNN model.
+    dataset : Dataset
+        A PyTorch Dataset with images and labels.
+    img_dest : str
+        File destination for annotated image.
+    '''
+    num_images = dataset.__len__()
+
+    # Get random image index
+    rng = random.default_rng()
+    idx = rng.integers(0, num_images-1)
+
+    image, _, bbox_label = dataset.__getitem__(idx)
+    _, bbox_pred = model(image)
+
+    # Plot bounding box label and prediction
+    bbox_list = [bbox_label.tolist(), bbox_pred.tolist()]
+    annotate_image(image, bbox_list, img_dest)

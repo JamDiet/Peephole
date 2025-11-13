@@ -52,7 +52,7 @@ if __name__ == '__main__':
     closs_fn = nn.BCELoss()
     lloss_fn = get_ciou
 
-    train_dataloader, test_dataloader = load_data(batch_size)
+    train_dataloader, test_dataloader, _ = load_data(batch_size)
 
     obj = ObjectiveContainer(train_dataloader=train_dataloader,
                              test_dataloader=test_dataloader,
