@@ -5,7 +5,8 @@ This repository will contain all the code necessary to train and run a single-fa
 ## Downloading Data
 
 The data used to train the face detection model can be downloaded to your current working directory by running the following in the terminal:
+```bash
+python download_data.py
 ```
-python download_data
-```
-The data can also be downloaded from https://zenodo.org/records/14474899.
+The data can also be downloaded from:
+https://zenodo.org/records/14474899.
