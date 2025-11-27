@@ -5,11 +5,14 @@ from torch.utils.tensorboard import SummaryWriter
 from facetracker import FaceTracker
 from utils import load_data, get_ciou, train_loop, test_loop, load_best_params, random_annotation
 
-def train(model_name: str,
+def train(
+          model_name: str,
           learning_rate: float=1e-4,
           epochs: int=10,
           batch_size: int=64,
-          optuna_hp: bool=False):
+          optuna_hp: bool=False,
+          data_root: str='data'
+):
     """
     Train a FaceTracker model for object classification and bounding box prediction.
 
@@ -58,7 +61,7 @@ def train(model_name: str,
         save(model.state_dict(), model_path)
         os.mkdir(os.path.join('detection', 'logs', 'facetracker', model_name))
 
-    train_dataloader, test_dataloader, testing_data = load_data(batch_size)
+    train_dataloader, test_dataloader, testing_data = load_data(batch_size, data_root)
 
     closs_fn = nn.BCELoss()
     lloss_fn = get_ciou
@@ -70,38 +73,47 @@ def train(model_name: str,
     for t in range(epochs):
         print(f"Epoch {t+1}\n-------------------------------")
 
-        train_loop(dataloader=train_dataloader,
-                   model=model,
-                   closs_fn=closs_fn,
-                   lloss_fn=lloss_fn,
-                   optimizer=optimizer,
-                   epoch=t,
-                   batch_size=batch_size,
-                   model_name=model_name,
-                   writer=writer,
-                   class_weight=cw,
-                   bbox_weight=bw)
+        train_loop(
+            dataloader=train_dataloader,
+            model=model,
+            closs_fn=closs_fn,
+            lloss_fn=lloss_fn,
+            optimizer=optimizer,
+            epoch=t,
+            batch_size=batch_size,
+            model_name=model_name,
+            writer=writer,
+            class_weight=cw,
+            bbox_weight=bw
+        )
         
-        class_accuracy, bbox_accuracy = test_loop(dataloader=test_dataloader,
-                                                  model=model,
-                                                  epoch=t,
-                                                  writer=writer)
+        class_accuracy, bbox_accuracy = test_loop(
+            dataloader=test_dataloader,
+            model=model,
+            epoch=t,
+            writer=writer
+        )
 
         print("\nTest Error:")
         print(f"Class Accuracy: {(100.*class_accuracy):>0.1f}%, B-Box Accuracy: {(100.*bbox_accuracy):>0.1f}%\n")
 
-        for _ in range(5):
-            random_annotation(model,
-                            testing_data,
-                            os.path.join('detection', 'val_annotations', f'{uuid.uuid4()}.png'))
+        for _ in range(2):
+            random_annotation(
+                model,
+                testing_data,
+                os.path.join('detection', 'val_annotations', f'{uuid.uuid4()}.png')
+            )
 
     print("Done!")
 
     writer.close()
 
 if __name__ == '__main__':
-    train(model_name='test',
-          learning_rate=1e-4,
-          epochs=10,
-          batch_size=64,
-          optuna_hp=False)
+    train(
+        model_name='base',
+        learning_rate=1e-4,
+        epochs=10,
+        batch_size=64,
+        optuna_hp=False,
+        data_root='data'
+    )

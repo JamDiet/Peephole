@@ -11,9 +11,9 @@ from numpy import random
 
 class CustomImageDataset(Dataset):
     '''Create PyTorch image dataset for single class and bounding box predictions.'''
-    def __init__(self, partition: str):
-        data_dir = os.path.join('data', partition)
-        self.label_dir = os.path.join('data', partition, 'labels')
+    def __init__(self, partition: str, data_root: str):
+        data_dir = os.path.join(data_root, partition)
+        self.label_dir = os.path.join(data_root, partition, 'labels')
         self.img_labels = os.listdir(self.label_dir)
         self.img_dir = os.path.join(data_dir, 'images')
     
@@ -41,7 +41,7 @@ class CustomImageDataset(Dataset):
         
         return image, class_label, bbox_label
     
-def load_data(batch_size: int):
+def load_data(batch_size: int, data_root: str='data'):
     '''
     Load training and testing data.
 
@@ -49,6 +49,8 @@ def load_data(batch_size: int):
     ----------
     batch_size : int
         Batch size for output DataLoaders.
+    data_root : str
+        Name of top-level data directory
 
     Returns
     -------
@@ -57,10 +59,10 @@ def load_data(batch_size: int):
     test_dataloader : DataLoader
         PyTorch DataLoader containing testing images.
     '''
-    training_data = CustomImageDataset('train')
+    training_data = CustomImageDataset('train', data_root)
     train_dataloader = DataLoader(training_data, batch_size=batch_size, shuffle=True)
 
-    testing_data = CustomImageDataset('test')
+    testing_data = CustomImageDataset('test', data_root)
     test_dataloader = DataLoader(testing_data, batch_size=batch_size, shuffle=True)
 
     return train_dataloader, test_dataloader, testing_data
@@ -196,13 +198,16 @@ def localization_loss(y_true, yhat):
 
     pred_width = yhat[:, 2] - yhat[:, 0]
     pred_height = yhat[:, 3] - yhat[:, 1]
-
-    dim_diff = torch.mean(torch.square(true_width - pred_width) +
-                          torch.square(true_height - pred_height))
+    
+    dim_diff = torch.mean(
+        torch.square(true_width - pred_width) +
+        torch.square(true_height - pred_height)
+    )
     
     return coord_diff + dim_diff
     
-def train_loop(dataloader,
+def train_loop(
+               dataloader,
                model,
                closs_fn,
                lloss_fn,
@@ -212,7 +217,8 @@ def train_loop(dataloader,
                model_name: str=None,
                writer=None,
                class_weight: float=.5,
-               bbox_weight: float=.5):
+               bbox_weight: float=.5
+):
     size = len(dataloader.dataset)
     num_batches = len(dataloader)
     model.train()
@@ -290,22 +296,23 @@ def load_best_params(model_name=str):
     bw : float
         Normalized weight for bounding box prediction loss.
     '''
-    study = load_study(study_name=model_name,
-                       storage='sqlite:///detection/logs/optuna/history.db')
+    study = load_study(
+        study_name=model_name,
+        storage='sqlite:///detection/logs/optuna.db'
+    )
+
     best_params = study.best_trial.params
     learning_rate = best_params['learning_rate']
     class_weight = best_params['class_weight']
     bbox_weight = best_params['bbox_weight']
 
-    # Normalize class and bounding box weights
-    cw = class_weight / (class_weight + bbox_weight)
-    bw = 1. - cw
+    return learning_rate, class_weight, bbox_weight
 
-    return learning_rate, cw, bw
-
-def annotate_image(image: torch.Tensor,
+def annotate_image(
+                   image: torch.Tensor,
                    bbox_list: list,
-                   img_dest: str):
+                   img_dest: str
+):
     '''
     Display a bounding box over an image.
 
@@ -340,9 +347,11 @@ def annotate_image(image: torch.Tensor,
     ax.set_axis_off()
     fig.savefig(img_dest)
 
-def random_annotation(model,
+def random_annotation(
+                      model,
                       dataset: Dataset,
-                      img_dest: str):
+                      img_dest: str
+):
     '''
     Display predicted bounding box on a random dataset element to visualize model accuracy.
 
@@ -362,8 +371,8 @@ def random_annotation(model,
     idx = rng.integers(0, num_images-1)
 
     image, _, bbox_label = dataset.__getitem__(idx)
-    _, bbox_pred = model(image)
+    _, bbox_pred = model(image.unsqueeze(0))
 
     # Plot bounding box label and prediction
-    bbox_list = [bbox_label.tolist(), bbox_pred.tolist()]
+    bbox_list = [bbox_label.tolist(), bbox_pred.tolist()[0]]
     annotate_image(image, bbox_list, img_dest)
