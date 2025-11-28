@@ -10,7 +10,7 @@ def train(
           learning_rate: float=1e-4,
           epochs: int=10,
           batch_size: int=64,
-          optuna_hp: bool=False,
+          optuna_study: str=None,
           data_root: str='data'
 ):
     """
@@ -44,8 +44,21 @@ def train(
         This function trains the model and logs training/testing results.
     """
     # Get best hyperparameters from Optuna study
-    if optuna_hp:
-        learning_rate, cw, bw = load_best_params(model_name)
+    if optuna_study is not None:
+        try:
+            learning_rate, cw, bw = load_best_params(optuna_study)
+        except ValueError:
+            print(f'The Optuna study {optuna_study} does not exist.')
+            while True:
+                cont = input('Should the model be trained on base hyperparameters? [Y/N] ').lower()
+                if cont == 'y':
+                    cw, bw = .5, .5
+                    break
+                elif cont == 'n':
+                    print('Terminating training session...')
+                    return
+                else:
+                    print('Please enter a valid character.\n')
     else:
         cw, bw = .5, .5
 
@@ -114,6 +127,6 @@ if __name__ == '__main__':
         learning_rate=1e-4,
         epochs=10,
         batch_size=64,
-        optuna_hp=False,
+        optuna_study=None,
         data_root='data'
     )

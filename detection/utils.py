@@ -278,14 +278,14 @@ def test_loop(dataloader, model, epoch: int=None, writer=None):
     
     return class_accuracy, bbox_accuracy
 
-def load_best_params(model_name=str):
+def load_best_params(optuna_study: str=None):
     '''
     Load the best hyperparameters from an existing Optuna study.
 
     Parameters
     ----------
-    model_name : str
-        Name of model for which parameters are to be loaded.
+    optuna_study : str
+        Name of Optuna study from which parameters are to be loaded.
 
     Returns
     -------
@@ -297,7 +297,7 @@ def load_best_params(model_name=str):
         Normalized weight for bounding box prediction loss.
     '''
     study = load_study(
-        study_name=model_name,
+        study_name=optuna_study,
         storage='sqlite:///detection/logs/optuna.db'
     )
 
