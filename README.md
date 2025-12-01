@@ -8,5 +8,5 @@ The data used to train the face detection model can be downloaded to your curren
 ```bash
 python download_data.py --output_dir="data"
 ```
-A folder called "data" will be added to your CWD with "train", "test", and "val" folders and the corresponding images and labels. Size: 1.2 GB.
+A folder called "data" will be added to your CWD with "train", "test", and "val" folders and the corresponding images and labels. Size: 1.2 GB. <br> <br>
 For more information about the dataset or to download it manually, please visit https://zenodo.org/records/14474899.
