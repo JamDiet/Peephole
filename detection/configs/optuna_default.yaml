@@ -1,0 +1,4 @@
+study_name: "base"
+n_trials: 100
+num_epochs: 10
+data_root: "data"

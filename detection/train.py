@@ -1,5 +1,7 @@
 import os
 import uuid
+import argparse
+import yaml
 from torch import load, nn, optim, save
 from torch.utils.tensorboard import SummaryWriter
 from facetracker import FaceTracker
@@ -26,9 +28,11 @@ def train(
         Number of training epochs. Default is 10.
     batch_size : int, optional
         Number of samples per batch. Default is 64.
-    optuna_hp : bool, optional
-        If True, load the best hyperparameters from a saved Optuna study.
+    optuna_study : str, optional
+        Load the best hyperparameters from the specified Optuna study.
         Otherwise, uses default classification and bounding box loss weights (0.5, 0.5).
+    data_root : str, optional
+        Directory from which to read training data.
 
     Notes
     -----
@@ -67,10 +71,10 @@ def train(
     # Load existing model weights
     model_path = os.path.join('detection', 'model_weights', f'{model_name}.pth')
     if os.path.exists(model_path):
-        print('Loading existing model...\n')
+        print(f'Loading existing weights for {model_name}...\n')
         model.load_state_dict(load(model_path, weights_only=True))
     else:
-        print('Saving new model weights...\n')
+        print(f'Saving new weights for {model_name}...\n')
         save(model.state_dict(), model_path)
         os.mkdir(os.path.join('detection', 'logs', 'facetracker', model_name))
 
@@ -121,12 +125,33 @@ def train(
 
     writer.close()
 
-if __name__ == '__main__':
+def main(args):
     train(
-        model_name='base',
-        learning_rate=1e-4,
-        epochs=10,
-        batch_size=64,
-        optuna_study=None,
-        data_root='data'
+        model_name=args.model_name,
+        learning_rate=args.lr,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        optuna_study=args.optuna_study,
+        data_root=args.data_root
     )
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    
+    parser.add_argument("--model_name", type=str, help="Model name")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--epochs", type=int, default=10, help="Number of training epochs")
+    parser.add_argument("--batch_size", type=int, default=64, help="Training batch size")
+    parser.add_argument("--optuna_study", type=str, default=None, help="Optuna study")
+    parser.add_argument("--data_root", type=str, default="data", help="Top-level data directory")
+    parser.add_argument("--config", type=str)
+
+    args = parser.parse_args()
+
+    if args.config:
+        config = yaml.safe_load(open(args.config))
+        for k, v in config.items():
+            if getattr(args, k) is None:
+                setattr(args, k, v)
+
+    main(args)

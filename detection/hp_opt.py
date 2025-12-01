@@ -1,3 +1,5 @@
+import argparse
+import yaml
 from optuna import create_study
 from torch import optim, nn
 from numpy import std
@@ -81,10 +83,28 @@ def run_study(
 
     study.optimize(obj.objective, n_trials=n_trials)
 
-if __name__ == '__main__':
+def main(args):
     run_study(
-        study_name='firecracker',
-        n_trials=100,
-        num_epochs=10,
-        data_root='data'
+        study_name=args.study_name,
+        n_trials=args.n_trials,
+        num_epochs=args.num_epochs,
+        data_root=args.data_root
     )
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--study_name", type=str, help="Study name")
+    parser.add_argument("--n_trials", type=int, default=100, help="Number of trials")
+    parser.add_argument("--num_epochs", type=int, default=10, help="Number of epochs per trial")
+    parser.add_argument("--data_root", type=str, default='data', help="Top-level data directory")
+
+    args = parser.parse_args()
+
+    if args.config:
+        config = yaml.safe_load(open(args.config))
+        for k, v in config.items():
+            if getattr(args, k) is None:
+                setattr(args, k, v)
+
+    main(args)

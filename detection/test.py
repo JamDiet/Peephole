@@ -1,5 +1,7 @@
 import os
 import uuid
+import argparse
+import yaml
 from torch import load
 from facetracker import FaceTracker
 from utils import CustomImageDataset, random_annotation
@@ -28,9 +30,26 @@ def test(
                     os.path.join('detection', 'val_annotations', f'{uuid.uuid4()}.png')
                 )
         
-if __name__ == '__main__':
+def main(args):
     test(
-        model_name='base',
-        num_images=2,
-        data_root='data'
+        model_name=args.model_name,
+        num_images=args.num_images,
+        data_root=args.data_root
     )
+        
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--model_name", type=str, help="Model name")
+    parser.add_argument("--num_images", type=int, default=1, help="Number of images")
+    parser.add_argument("--data_root", type=str, default="data", help="Top-level data directory")
+
+    args = parser.parse_args()
+
+    if args.config:
+        config = yaml.safe_load(open(args.config))
+        for k, v in config.items():
+            if getattr(args, k) is None:
+                setattr(args, k, v)
+
+    main(args)

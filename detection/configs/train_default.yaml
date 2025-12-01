@@ -1,0 +1,6 @@
+model_name: "base"
+lr: 1e-4
+epochs: 10
+batch_size: 64
+optuna_study: None
+data_root: "data"
