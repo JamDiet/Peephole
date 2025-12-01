@@ -6,7 +6,7 @@ from torch import load
 from facetracker import FaceTracker
 from utils import CustomImageDataset, random_annotation
 
-def test(
+def validate(
         model_name: str,
         num_images: int,
         data_root: str='data'
@@ -16,12 +16,12 @@ def test(
     # Load existing model weights
     model_path = os.path.join('detection', 'model_weights', f'{model_name}.pth')
     if os.path.exists(model_path):
-        print('Loading existing model...\n')
+        print(f'Loading existing weights from {model_name}...\n')
         model.load_state_dict(load(model_path, weights_only=True))
     else:
         print(f'Cannot find {model_name}. Please provide another model or begin by training {model_name}.')
     
-    testing_data = CustomImageDataset('test', data_root)
+    testing_data = CustomImageDataset('val', data_root)
 
     for _ in range(num_images):
         random_annotation(
@@ -31,7 +31,7 @@ def test(
                 )
         
 def main(args):
-    test(
+    validate(
         model_name=args.model_name,
         num_images=args.num_images,
         data_root=args.data_root
