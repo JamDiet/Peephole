@@ -2,7 +2,7 @@ import os
 import json
 import math
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, DistributedSampler
 from torchvision.io import decode_image
 from optuna import load_study
 import matplotlib.pyplot as plt
@@ -41,7 +41,13 @@ class CustomImageDataset(Dataset):
         
         return image, class_label, bbox_label
     
-def load_data(batch_size: int, data_root: str='data'):
+def load_data(
+        batch_size: int,
+        data_root: str='data',
+        parallelize: bool=False,
+        return_test_data: bool=False,
+        epoch: int=0
+):
     '''
     Load training and testing data.
 
@@ -60,12 +66,34 @@ def load_data(batch_size: int, data_root: str='data'):
         PyTorch DataLoader containing testing images.
     '''
     training_data = CustomImageDataset('train', data_root)
-    train_dataloader = DataLoader(training_data, batch_size=batch_size, shuffle=True)
-
     testing_data = CustomImageDataset('test', data_root)
-    test_dataloader = DataLoader(testing_data, batch_size=batch_size, shuffle=True)
 
-    return train_dataloader, test_dataloader, testing_data
+    if parallelize:
+        train_sampler = DistributedSampler(training_data)
+        train_sampler = train_sampler.set_epoch(epoch)
+        train_dataloader = DataLoader(
+            dataset=training_data,
+            batch_size=batch_size,
+            sampler=train_sampler,
+            shuffle=False
+        )
+
+        test_sampler = DistributedSampler(testing_data)
+        test_sampler = test_sampler.set_epoch(epoch)
+        test_dataloader = DataLoader(
+            dataset=testing_data,
+            batch_size=batch_size,
+            sampler=test_sampler,
+            shuffle=False
+        )
+    else:
+        train_dataloader = DataLoader(training_data, batch_size=batch_size, shuffle=True)
+        test_dataloader = DataLoader(testing_data, batch_size=batch_size, shuffle=True)
+
+    if return_test_data:
+        return train_dataloader, test_dataloader, testing_data
+    else:
+        return train_dataloader, test_dataloader
 
 def get_iou(y_true, yhat):
     """
@@ -212,18 +240,22 @@ def train_loop(
                closs_fn,
                lloss_fn,
                optimizer,
+               device,
                batch_size: int,
                epoch: int=None,
                model_name: str=None,
                writer=None,
                class_weight: float=.5,
-               bbox_weight: float=.5
+               bbox_weight: float=.5,
+               rank: int=0
 ):
     size = len(dataloader.dataset)
     num_batches = len(dataloader)
     model.train()
 
     for batch, (X, y, z) in enumerate(dataloader):
+        X, y, z = X.to(device), y.to(device), z.to(device)
+
         # Get predictions
         class_pred, bbox_pred = model(X)
         class_pred = class_pred.squeeze(1)
@@ -251,16 +283,24 @@ def train_loop(
             print(f"closs: {closs:>7f}  lloss: {lloss:>7f}  loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
 
             # Save weights
-            if model_name != None:
+            if model_name != None and rank == 0:
                 torch.save(model.state_dict(), os.path.join('detection', 'model_weights', f'{model_name}.pth'))
 
-def test_loop(dataloader, model, epoch: int=None, writer=None):
+def test_loop(
+        dataloader,
+        model,
+        device,
+        epoch: int=None,
+        writer=None
+):
     model.eval()
     size = len(dataloader.dataset)
     class_accuracy, bbox_accuracy = 0., 0.
 
     with torch.no_grad():
         for X, y, z in dataloader:
+            X, y, z = X.to(device), y.to(device), z.to(device)
+
             # Get predictions
             class_pred, bbox_pred = model(X)
             class_pred = class_pred.squeeze(1)
@@ -349,6 +389,7 @@ def annotate_image(
 
 def random_annotation(
                       model,
+                      device,
                       dataset: Dataset,
                       img_dest: str
 ):
@@ -371,6 +412,7 @@ def random_annotation(
     idx = rng.integers(0, num_images-1)
 
     image, _, bbox_label = dataset.__getitem__(idx)
+    image, bbox_label = image.to(device), bbox_label.to(device)
     _, bbox_pred = model(image.unsqueeze(0))
 
     # Plot bounding box label and prediction

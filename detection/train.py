@@ -2,8 +2,10 @@ import os
 import uuid
 import argparse
 import yaml
-from torch import load, nn, optim, save
+import torch
+import torch.distributed as dist
 from torch.utils.tensorboard import SummaryWriter
+from torch.nn.parallel import DistributedDataParallel as DDP
 from facetracker import FaceTracker
 from utils import load_data, get_ciou, train_loop, test_loop, load_best_params, random_annotation
 
@@ -13,7 +15,9 @@ def train(
           epochs: int=10,
           batch_size: int=64,
           optuna_study: str=None,
-          data_root: str='data'
+          data_root: str='data',
+          parallelize: bool=False,
+          num_annotations: int=0
 ):
     """
     Train a FaceTracker model for object classification and bounding box prediction.
@@ -72,22 +76,52 @@ def train(
     model_path = os.path.join('detection', 'model_weights', f'{model_name}.pth')
     if os.path.exists(model_path):
         print(f'Loading existing weights for {model_name}...\n')
-        model.load_state_dict(load(model_path, weights_only=True))
+        model.load_state_dict(torch.load(model_path, weights_only=True))
     else:
         print(f'Saving new weights for {model_name}...\n')
-        save(model.state_dict(), model_path)
+        torch.save(model.state_dict(), model_path)
         os.mkdir(os.path.join('detection', 'logs', 'facetracker', model_name))
 
-    train_dataloader, test_dataloader, testing_data = load_data(batch_size, data_root)
+    if parallelize:
+        local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        rank = int(os.environ.get("RANK", 0))
+        device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
+        backend = "nccl" if torch.cuda.is_available() else "gloo"
+        torch.cuda.set_device(local_rank) if torch.cuda.is_available() else None
+        dist.init_process_group(backend=backend, init_method="env://")
+        model.to(device)
+        model = DDP(model, device_ids=[local_rank] if torch.cuda.is_available() else None)
+    else:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model.to(device)
+        rank = 0
 
-    closs_fn = nn.BCELoss()
+    if rank == 0:
+        writer = SummaryWriter(log_dir=os.path.join('detection', 'logs', 'facetracker', model_name))
+    else:
+        writer = None
+
+    train_dataloader, test_dataloader, testing_data = load_data(
+        batch_size=batch_size,
+        data_root=data_root,
+        parallelize=parallelize,
+        return_test_data=True
+    )
+
+    closs_fn = torch.nn.BCELoss()
     lloss_fn = get_ciou
 
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
-    writer = SummaryWriter(log_dir=os.path.join('detection', 'logs', 'facetracker', model_name))
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
     for t in range(epochs):
+        if parallelize and t > 0:
+            train_dataloader, test_dataloader = load_data(
+                batch_size=batch_size,
+                data_root=data_root,
+                parallelize=parallelize,
+                epoch=t
+            )
+
         print(f"Epoch {t+1}\n-------------------------------")
 
         train_loop(
@@ -101,29 +135,41 @@ def train(
             model_name=model_name,
             writer=writer,
             class_weight=cw,
-            bbox_weight=bw
+            bbox_weight=bw,
+            device=device,
+            rank=rank
         )
         
         class_accuracy, bbox_accuracy = test_loop(
             dataloader=test_dataloader,
             model=model,
             epoch=t,
-            writer=writer
+            writer=writer,
+            device=device
         )
 
         print("\nTest Error:")
         print(f"Class Accuracy: {(100.*class_accuracy):>0.1f}%, B-Box Accuracy: {(100.*bbox_accuracy):>0.1f}%\n")
 
-        for _ in range(2):
-            random_annotation(
-                model,
-                testing_data,
-                os.path.join('detection', 'val_annotations', f'{uuid.uuid4()}.png')
-            )
+        if num_annotations > 0 and rank == 0:
+            for _ in range(num_annotations):
+                random_annotation(
+                    model=model,
+                    dataset=testing_data,
+                    img_dest=os.path.join('detection', 'val_annotations', f'{uuid.uuid4()}.png'),
+                    device=device
+                )
+        
+        if parallelize:
+            dist.barrier()
 
     print("Done!")
 
-    writer.close()
+    if writer is not None:
+        writer.close()
+    
+    if parallelize:
+        dist.destroy_process_group()
 
 def main(args):
     train(
@@ -132,7 +178,9 @@ def main(args):
         epochs=args.epochs,
         batch_size=args.batch_size,
         optuna_study=args.optuna_study,
-        data_root=args.data_root
+        data_root=args.data_root,
+        parallelize=args.parallelize,
+        num_annotations=args.num_annotations
     )
 
 if __name__ == '__main__':
@@ -144,6 +192,8 @@ if __name__ == '__main__':
     parser.add_argument("--batch_size", type=int, default=64, help="Training batch size")
     parser.add_argument("--optuna_study", type=str, default=None, help="Optuna study")
     parser.add_argument("--data_root", type=str, default="data", help="Top-level data directory")
+    parser.add_argument("--parallelize", type=bool, default=False, help="Parallelize training")
+    parser.add_argument("--num_annotations", type=int, default=0, help="Number of test annotations")
     parser.add_argument("--config", type=str)
 
     args = parser.parse_args()
