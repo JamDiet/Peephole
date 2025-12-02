@@ -1,6 +1,7 @@
 import subprocess
 import zipfile
 import os
+import argparse
 from tqdm import tqdm
 
 def download_data(output_dir: str='data'):
@@ -15,7 +16,7 @@ def download_data(output_dir: str='data'):
     root_prefix = 'soloface-detection-dataset/'
 
     with zipfile.ZipFile(zip_path) as z:
-        print('\nExtracting files to output directory...')
+        print(f'\nExtracting files to {output_dir}...')
         
         for member in tqdm(z.namelist()):
             if member != root_prefix:   # Avoid saving root folder
@@ -36,5 +37,10 @@ def download_data(output_dir: str='data'):
 
     os.remove(zip_path)
 
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output_dir", type=str, default="data", help="Directory to store data")
+    download_data(parser.parse_args().output_dir)
+
 if __name__ == '__main__':
-    download_data(output_dir='data')
+    main()
