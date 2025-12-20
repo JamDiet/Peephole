@@ -420,3 +420,16 @@ def random_annotation(
     # Plot bounding box label and prediction
     bbox_list = [bbox_label.tolist(), bbox_pred.tolist()[0]]
     annotate_image(image, bbox_list, img_dest)
+
+def plot_accuracies(
+        class_accuracy_history: list,
+        bbox_accuracy_history: list,
+        filepath: str
+):
+    plt.plot(class_accuracy_history, color="r", label="Class")
+    plt.plot(bbox_accuracy_history, color="b", label="B-Box")
+    plt.title("Model Accuracies per Epoch")
+    plt.xlabel("Epoch")
+    plt.ylabel("Accuracy (%)")
+    plt.legend()
+    plt.savefig(filepath)

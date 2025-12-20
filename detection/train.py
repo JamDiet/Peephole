@@ -97,7 +97,10 @@ def train(
         rank = 0
 
     if rank == 0:
-        writer = SummaryWriter(log_dir=os.path.join('detection', 'logs', 'facetracker', model_name))
+        log_dir = os.path.join('detection', 'logs', 'facetracker', model_name)
+        writer = SummaryWriter(log_dir=log_dir)
+        class_accuracy_history = []
+        bbox_accuracy_history = []
     else:
         writer = None
 
@@ -151,14 +154,18 @@ def train(
         print("\nTest Error:")
         print(f"Class Accuracy: {(100.*class_accuracy):>0.1f}%, B-Box Accuracy: {(100.*bbox_accuracy):>0.1f}%\n")
 
-        if num_annotations > 0 and rank == 0:
-            for _ in range(num_annotations):
-                utils.random_annotation(
-                    model=model,
-                    dataset=testing_data,
-                    img_dest=os.path.join('detection', 'val_annotations', f'{uuid.uuid4()}.png'),
-                    device=device
-                )
+        if rank == 0:
+            class_accuracy_history.append(100. * class_accuracy)
+            bbox_accuracy_history.append(100. * bbox_accuracy)
+
+            if num_annotations > 0:
+                for _ in range(num_annotations):
+                    utils.random_annotation(
+                        model=model,
+                        dataset=testing_data,
+                        img_dest=os.path.join('detection', 'val_annotations', f'{uuid.uuid4()}.png'),
+                        device=device
+                    )
         
         if parallelize:
             dist.barrier()
@@ -170,6 +177,13 @@ def train(
     
     if parallelize:
         dist.destroy_process_group()
+    
+    if rank == 0:
+        utils.plot_accuracies(
+            class_accuracy_history=class_accuracy_history,
+            bbox_accuracy_history=bbox_accuracy_history,
+            filepath=os.path.join(log_dir, f'{uuid.uuid4()}.png')
+        )
 
 def main(args):
     train(
