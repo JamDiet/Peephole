@@ -240,21 +240,22 @@ def train_loop(
                closs_fn,
                lloss_fn,
                optimizer,
-               device,
                batch_size: int,
                epoch: int=None,
                model_name: str=None,
                writer=None,
                class_weight: float=.5,
                bbox_weight: float=.5,
-               rank: int=0
+               rank: int=0,
+               device=None
 ):
     size = len(dataloader.dataset)
     num_batches = len(dataloader)
     model.train()
 
     for batch, (X, y, z) in enumerate(dataloader):
-        X, y, z = X.to(device), y.to(device), z.to(device)
+        if device is not None:
+            X, y, z = X.to(device), y.to(device), z.to(device)
 
         # Get predictions
         class_pred, bbox_pred = model(X)
@@ -289,7 +290,7 @@ def train_loop(
 def test_loop(
         dataloader,
         model,
-        device,
+        device=None,
         epoch: int=None,
         writer=None
 ):
@@ -299,7 +300,8 @@ def test_loop(
 
     with torch.no_grad():
         for X, y, z in dataloader:
-            X, y, z = X.to(device), y.to(device), z.to(device)
+            if device is not None:
+                X, y, z = X.to(device), y.to(device), z.to(device)
 
             # Get predictions
             class_pred, bbox_pred = model(X)
