@@ -7,7 +7,7 @@ import torch.distributed as dist
 from torch.utils.tensorboard import SummaryWriter
 from torch.nn.parallel import DistributedDataParallel as DDP
 from facetracker import FaceTracker
-from utils import load_data, get_ciou, train_loop, test_loop, load_best_params, random_annotation
+from detection.utils import utils
 
 def train(
           model_name: str,
@@ -54,7 +54,7 @@ def train(
     # Get best hyperparameters from Optuna study
     if optuna_study is not None:
         try:
-            learning_rate, cw, bw = load_best_params(optuna_study)
+            learning_rate, cw, bw = utils.load_best_params(optuna_study)
         except ValueError:
             print(f'The Optuna study {optuna_study} does not exist.')
             while True:
@@ -101,7 +101,7 @@ def train(
     else:
         writer = None
 
-    train_dataloader, test_dataloader, testing_data = load_data(
+    train_dataloader, test_dataloader, testing_data = utils.load_data(
         batch_size=batch_size,
         data_root=data_root,
         parallelize=parallelize,
@@ -109,13 +109,13 @@ def train(
     )
 
     closs_fn = torch.nn.BCELoss()
-    lloss_fn = get_ciou
+    lloss_fn = utils.get_ciou
 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
     for t in range(epochs):
         if parallelize and t > 0:
-            train_dataloader, test_dataloader = load_data(
+            train_dataloader, test_dataloader = utils.load_data(
                 batch_size=batch_size,
                 data_root=data_root,
                 parallelize=parallelize,
@@ -124,7 +124,7 @@ def train(
 
         print(f"Epoch {t+1}\n-------------------------------")
 
-        train_loop(
+        utils.train_loop(
             dataloader=train_dataloader,
             model=model,
             closs_fn=closs_fn,
@@ -140,7 +140,7 @@ def train(
             rank=rank
         )
         
-        class_accuracy, bbox_accuracy = test_loop(
+        class_accuracy, bbox_accuracy = utils.test_loop(
             dataloader=test_dataloader,
             model=model,
             epoch=t,
@@ -153,7 +153,7 @@ def train(
 
         if num_annotations > 0 and rank == 0:
             for _ in range(num_annotations):
-                random_annotation(
+                utils.random_annotation(
                     model=model,
                     dataset=testing_data,
                     img_dest=os.path.join('detection', 'val_annotations', f'{uuid.uuid4()}.png'),
@@ -192,7 +192,7 @@ if __name__ == '__main__':
     parser.add_argument("--batch_size", type=int, default=64, help="Training batch size")
     parser.add_argument("--optuna_study", type=str, default=None, help="Optuna study")
     parser.add_argument("--data_root", type=str, default="data", help="Top-level data directory")
-    parser.add_argument("--parallelize", type=bool, default=False, help="Parallelize training")
+    parser.add_argument("--parallelize", action="store_true", default=False, help="Parallelize training")
     parser.add_argument("--num_annotations", type=int, default=0, help="Number of test annotations")
     parser.add_argument("--config", type=str)
 

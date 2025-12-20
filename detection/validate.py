@@ -4,7 +4,7 @@ import argparse
 import yaml
 from torch import load
 from facetracker import FaceTracker
-from utils import CustomImageDataset, random_annotation
+from detection.utils import utils
 
 def validate(
         model_name: str,
@@ -21,10 +21,10 @@ def validate(
     else:
         print(f'Cannot find {model_name}. Please provide another model or begin by training {model_name}.')
     
-    testing_data = CustomImageDataset('val', data_root)
+    testing_data = utils.CustomImageDataset('val', data_root)
 
     for _ in range(num_images):
-        random_annotation(
+        utils.random_annotation(
                     model,
                     testing_data,
                     os.path.join('detection', 'val_annotations', f'{uuid.uuid4()}.png')
@@ -43,6 +43,7 @@ if __name__ == '__main__':
     parser.add_argument("--model_name", type=str, help="Model name")
     parser.add_argument("--num_images", type=int, default=1, help="Number of images")
     parser.add_argument("--data_root", type=str, default="data", help="Top-level data directory")
+    parser.add_argument("--config", type=str)
 
     args = parser.parse_args()
 
