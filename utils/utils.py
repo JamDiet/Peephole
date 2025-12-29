@@ -8,12 +8,13 @@ from optuna import load_study
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from numpy import random
+import boto3
 
 class CustomImageDataset(Dataset):
     '''Create PyTorch image dataset for single class and bounding box predictions.'''
     def __init__(self, partition: str, data_root: str):
         data_dir = os.path.join(data_root, partition)
-        self.label_dir = os.path.join(data_root, partition, 'labels')
+        self.label_dir = os.path.join(data_dir, 'labels')
         self.img_labels = os.listdir(self.label_dir)
         self.img_dir = os.path.join(data_dir, 'images')
     
@@ -40,6 +41,81 @@ class CustomImageDataset(Dataset):
         bbox_label = torch.tensor(label['bbox'], dtype=torch.float32)
         
         return image, class_label, bbox_label
+
+class S3ImageDataset(Dataset):
+    '''Create PyTorch image dataset from AWS S3 bucket.'''
+    def __init__(
+            self,
+            region_name: str,
+            aws_access_key_id: str,
+            aws_secret_access_key: str,
+            bucket_name: str,
+            partition: str
+    ):
+        self.region_name = region_name
+        self.aws_access_key_id = aws_access_key_id
+        self.aws_secret_access_key = aws_secret_access_key
+        self.bucket_name = bucket_name
+        self.partition = partition
+        self.client = None
+    
+    def __len__(self):
+        return len(self.img_labels)
+    
+    def __getitem__(self, idx):
+        '''
+        Returns
+        -------
+        image : torch.Tensor
+            Tensor of shape (3, H, W) — normalized pixel values.
+        class_label : torch.Tensor
+            Tensor of shape (1,) — class probability.
+        bbox_label : torch.Tensor
+            Tensor of shape (4,) — bounding box coordinates (x_min, y_min, x_max, y_max).
+        '''
+        self.get_client()
+
+        img_path = f"{self.img_dir}/{self.img_labels[idx].split('.json')[0]}.jpg"
+        img_resp = self.client.get_object(
+            Bucket=self.bucket_name,
+            Key=img_path
+        )
+        image = decode_image(img_resp["Body"].read()) / 255.
+
+        label_path = f"{self.label_dir}/{self.img_labels[idx]}"
+        label_resp = self.client.get_object(
+            Bucket=self.bucket_name,
+            Key=label_path
+        )
+        label = json.loads(label_resp["Body"].read())
+
+        class_label = torch.tensor(label['class'], dtype=torch.float32)
+        bbox_label = torch.tensor(label['bbox'], dtype=torch.float32)
+        
+        return image, class_label, bbox_label
+    
+    def create_client(self):
+        if self.client is None:
+            self.client = boto3.client(
+                "s3",
+                region_name=self.region_name,
+                aws_access_key_id=self.aws_access_key_id,
+                aws_secret_access_key=self.aws_secret_access_key
+            )
+
+            paginator = self.client.get_paginator("list_objects_v2")
+
+            self.img_labels = []
+
+            for page in paginator.paginate(
+                Bucket=self.bucket_name,
+                Prefix=f"{self.partition}/labels/"
+            ):
+                for obj in page.get("Contents", []):
+                    self.img_labels.append(obj["Key"].split("labels/")[1])
+
+            self.label_dir = os.path.join(self.partition, 'labels')
+            self.img_dir = os.path.join(self.partition, 'images')
     
 def load_data(
         batch_size: int,

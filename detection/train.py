@@ -7,7 +7,7 @@ import torch.distributed as dist
 from torch.utils.tensorboard import SummaryWriter
 from torch.nn.parallel import DistributedDataParallel as DDP
 from facetracker import FaceTracker
-from detection.utils import utils
+from utils import utils
 
 def train(
           model_name: str,

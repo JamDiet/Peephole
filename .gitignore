@@ -1,6 +1,7 @@
 __pycache__/
 venv/
 logs/facetracker/**
+configs/cloud/credentials
 
 *.jpg
 *.json

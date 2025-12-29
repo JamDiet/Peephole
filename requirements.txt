@@ -5,3 +5,4 @@ torchvision
 tensorboard
 matplotlib
 zenodo-get
+boto3

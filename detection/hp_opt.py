@@ -10,7 +10,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from numpy import std
 from facetracker import FaceTracker
-from detection.utils import utils
+import utils
 
 class ObjectiveContainer():
     def __init__(
