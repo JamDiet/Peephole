@@ -8,9 +8,10 @@ from optuna.storages.journal import JournalFileBackend
 import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
-from numpy import std
-from facetracker import FaceTracker
-import utils
+import boto3
+import json
+from .facetracker import FaceTracker
+from utils import utils
 
 class ObjectiveContainer():
     def __init__(
@@ -20,7 +21,9 @@ class ObjectiveContainer():
                  batch_size: int=64,
                  num_epochs: int=10,
                  parallelize: bool=False,
-                 data_root: str="data"
+                 data_root: str="data",
+                 client=None,
+                 bucket_name: str | None=None
     ):
         self.closs_fn = closs_fn
         self.lloss_fn = lloss_fn
@@ -28,6 +31,8 @@ class ObjectiveContainer():
         self.num_epochs = num_epochs
         self.parallelize = parallelize
         self.data_root = data_root
+        self.client = client
+        self.bucket_name = bucket_name
 
         if parallelize:
             self.local_rank = int(os.environ.get("LOCAL_RANK", 0))
@@ -55,7 +60,9 @@ class ObjectiveContainer():
         train_dataloader, test_dataloader = utils.load_data(
             batch_size=self.batch_size,
             data_root=self.data_root,
-            parallelize=self.parallelize
+            parallelize=self.parallelize,
+            client=self.client,
+            bucket_name=self.bucket_name
         )
 
         for t in range(self.num_epochs):
@@ -64,7 +71,9 @@ class ObjectiveContainer():
                     batch_size=self.batch_size,
                     data_root=self.data_root,
                     epoch=t,
-                    parallelize=self.parallelize
+                    parallelize=self.parallelize,
+                    client=self.client,
+                    bucket_name=self.bucket_name
                 )
 
             utils.train_loop(
@@ -91,7 +100,7 @@ class ObjectiveContainer():
         print("\nTest Error:")
         print(f"Class Accuracy: {(100.*class_accuracy):>0.1f}%, B-Box Accuracy: {(100.*bbox_accuracy):>0.1f}%\n")
 
-        return class_accuracy + bbox_accuracy - std([class_accuracy, bbox_accuracy])
+        return class_accuracy + bbox_accuracy
     
     def destroy_process_group(self):
         if self.parallelize:
@@ -106,7 +115,11 @@ class StudyContainer():
             data_root: str='data',
             batch_size: int=64,
             pool: bool=False,
-            ddp: bool=False
+            ddp: bool=False,
+            region_name: str | None=None,
+            aws_access_key_id: str | None=None,
+            aws_secret_access_key: str | None=None,
+            bucket_name: str | None=None
     ):
         self.study_name = study_name
         self.n_trials = n_trials
@@ -120,6 +133,18 @@ class StudyContainer():
         self.pool = pool
         self.ddp = ddp
 
+        if self.ddp:
+            self.client = boto3.client(
+                "s3",
+                region_name=region_name,
+                aws_access_key_id=aws_access_key_id,
+                aws_secret_access_key=aws_secret_access_key
+            )
+            self.bucket_name = bucket_name
+        else:
+            self.client = None
+            self.bucket_name = None
+
     def run_study(self, _):
         # Training parameters
         closs_fn = torch.nn.BCELoss()
@@ -131,7 +156,9 @@ class StudyContainer():
             batch_size=self.batch_size,
             num_epochs=self.num_epochs,
             parallelize=self.ddp,
-            data_root=self.data_root
+            data_root=self.data_root,
+            client=self.client,
+            bucket_name=self.bucket_name
         )
         
         if self.pool:
@@ -161,7 +188,10 @@ def main(args):
         data_root=args.data_root,
         batch_size=args.batch_size,
         pool=args.pool,
-        ddp=args.ddp
+        ddp=args.ddp,
+        region_name=args.region_name,
+        aws_access_key_id=args.aws_access_key_id,
+        aws_secret_access_key=args.aws_secret_access_key
     )
 
     world_size = int(os.environ.get("WORLD_SIZE", 1))
@@ -170,7 +200,7 @@ def main(args):
         with Pool(processes=world_size) as pool:
             pool.map(study.run_study, range(args.n_trials))
     else:
-        study.run_study()
+        study.run_study(0)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -182,13 +212,24 @@ if __name__ == '__main__':
     parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
     parser.add_argument("--pool", action="store_true", default=False, help="Optuna pooling flag")
     parser.add_argument("--ddp", action="store_true", default=False, help="DistributedDataParallel flag")
+    parser.add_argument("--region_name", type=str, help="AWS bucket region")
+    parser.add_argument("--aws_access_key_id", type=str, help="AWS access key ID")
+    parser.add_argument("--aws_secret_access_key", type=str, help="AWS secret access key")
     parser.add_argument("--config", type=str)
+    parser.add_argument("--credentials", type=str, help="AWS access credentials")
 
     args = parser.parse_args()
 
     if args.config:
         config = yaml.safe_load(open(args.config))
         for k, v in config.items():
+            if getattr(args, k) is None:
+                setattr(args, k, v)
+
+    if args.credentials:
+        with open(args.credentials, "r") as f:
+            credentials = json.load(f)
+        for k, v in credentials.items():
             if getattr(args, k) is None:
                 setattr(args, k, v)
 

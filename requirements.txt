@@ -4,5 +4,6 @@ torch
 torchvision
 tensorboard
 matplotlib
-zenodo-get
+zenodo_get
 boto3
+tqdm

@@ -41,88 +41,80 @@ class CustomImageDataset(Dataset):
         bbox_label = torch.tensor(label['bbox'], dtype=torch.float32)
         
         return image, class_label, bbox_label
-
+    
 class S3ImageDataset(Dataset):
-    '''Create PyTorch image dataset from AWS S3 bucket.'''
     def __init__(
             self,
-            region_name: str,
-            aws_access_key_id: str,
-            aws_secret_access_key: str,
+            client,
             bucket_name: str,
             partition: str
     ):
-        self.region_name = region_name
-        self.aws_access_key_id = aws_access_key_id
-        self.aws_secret_access_key = aws_secret_access_key
         self.bucket_name = bucket_name
-        self.partition = partition
-        self.client = None
-    
+        self.images = []
+        self.labels = []
+        self.img_prefix = None
+        self.lab_prefix = None
+
+        # Create a reusable Paginator
+        paginator = client.get_paginator('list_objects_v2')
+
+        # Create a PageIterator from the Paginator
+        page_iterator = paginator.paginate(Bucket=bucket_name)
+
+        # Each page contains 1000 objects
+        for page in page_iterator:
+            for obj in page["Contents"]:
+                key = obj["Key"]
+
+                # Store path prefixes
+                if self.img_prefix is None and partition in key:
+                    partition_dir = os.path.join(key.split("\\")[0], partition)
+                    self.img_prefix = os.path.join(partition_dir, "images")
+                    self.lab_prefix = os.path.join(partition_dir, "labels")
+                
+                # Store only image or label file names
+                if self.img_prefix in key:
+                    self.images.append(key.split(self.img_prefix)[1].replace("\\", ""))
+                elif self.lab_prefix in key:
+                    self.labels.append(key.split(self.lab_prefix)[1].replace("\\", ""))
+                else:
+                    continue
+        
     def __len__(self):
-        return len(self.img_labels)
+        return len(self.label_keys)
     
     def __getitem__(self, idx):
-        '''
-        Returns
-        -------
-        image : torch.Tensor
-            Tensor of shape (3, H, W) — normalized pixel values.
-        class_label : torch.Tensor
-            Tensor of shape (1,) — class probability.
-        bbox_label : torch.Tensor
-            Tensor of shape (4,) — bounding box coordinates (x_min, y_min, x_max, y_max).
-        '''
-        self.get_client()
+        # Ensure label and image match
+        label_name = self.labels[idx]
+        image_name = self.images[self.images == label_name.split(".json")[0] + ".jpg"]
 
-        img_path = f"{self.img_dir}/{self.img_labels[idx].split('.json')[0]}.jpg"
+        # Retrieve label data from bucket
+        lab_resp = self.client.get_object(
+            Bucket=self.bucket_name,
+            Key=os.path.join(self.lab_prefix, label_name)
+        )
+        label = json.loads(lab_resp["Body"].read())
+        class_label = label["class"]
+        bbox_label = label["bbox"]
+
+        # Retrieve image data from bucket
         img_resp = self.client.get_object(
             Bucket=self.bucket_name,
-            Key=img_path
+            Key=os.path.join(self.img_prefix, image_name)
         )
-        image = decode_image(img_resp["Body"].read()) / 255.
+        img_bytes = torch.frombuffer(img_resp["Body"].read(), dtype=torch.uint8)
+        image = decode_image(img_bytes) / 255.
 
-        label_path = f"{self.label_dir}/{self.img_labels[idx]}"
-        label_resp = self.client.get_object(
-            Bucket=self.bucket_name,
-            Key=label_path
-        )
-        label = json.loads(label_resp["Body"].read())
-
-        class_label = torch.tensor(label['class'], dtype=torch.float32)
-        bbox_label = torch.tensor(label['bbox'], dtype=torch.float32)
-        
         return image, class_label, bbox_label
-    
-    def create_client(self):
-        if self.client is None:
-            self.client = boto3.client(
-                "s3",
-                region_name=self.region_name,
-                aws_access_key_id=self.aws_access_key_id,
-                aws_secret_access_key=self.aws_secret_access_key
-            )
-
-            paginator = self.client.get_paginator("list_objects_v2")
-
-            self.img_labels = []
-
-            for page in paginator.paginate(
-                Bucket=self.bucket_name,
-                Prefix=f"{self.partition}/labels/"
-            ):
-                for obj in page.get("Contents", []):
-                    self.img_labels.append(obj["Key"].split("labels/")[1])
-
-            self.label_dir = os.path.join(self.partition, 'labels')
-            self.img_dir = os.path.join(self.partition, 'images')
     
 def load_data(
         batch_size: int,
         data_root: str='data',
         parallelize: bool=False,
         return_test_data: bool=False,
-        epoch: int=0
+        epoch: int=0,
+        client=None,
+        bucket_name=None
 ):
     '''
     Load training and testing data.
@@ -133,6 +125,16 @@ def load_data(
         Batch size for output DataLoaders.
     data_root : str
         Name of top-level data directory
+    parallelize : bool
+        Flag for parallelizing training
+    return_test_data : bool
+        Flag to return test dataset
+    epoch : int
+        Training epoch
+    client
+        AWS S3 client
+    bucket_name : str
+        AWS S3 bucket name
 
     Returns
     -------
@@ -141,10 +143,10 @@ def load_data(
     test_dataloader : DataLoader
         PyTorch DataLoader containing testing images.
     '''
-    training_data = CustomImageDataset('train', data_root)
-    testing_data = CustomImageDataset('test', data_root)
-
     if parallelize:
+        training_data = S3ImageDataset(client, bucket_name, 'train')
+        testing_data = S3ImageDataset(client, bucket_name, 'test')
+
         train_sampler = DistributedSampler(training_data)
         train_sampler = train_sampler.set_epoch(epoch)
         train_dataloader = DataLoader(
@@ -163,6 +165,9 @@ def load_data(
             shuffle=False
         )
     else:
+        training_data = CustomImageDataset('train', data_root)
+        testing_data = CustomImageDataset('test', data_root)
+
         train_dataloader = DataLoader(training_data, batch_size=batch_size, shuffle=True)
         test_dataloader = DataLoader(testing_data, batch_size=batch_size, shuffle=True)
 
