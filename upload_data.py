@@ -2,6 +2,7 @@ import boto3
 import os
 import argparse
 import json
+from tqdm import tqdm
 
 def upload_face_data(
         bucket,
@@ -23,7 +24,9 @@ def upload_face_data(
         img_labels = os.listdir(label_dir)
         img_dir = os.path.join(data_dir, 'images')
 
-        for idx in range(len(img_labels)):
+        print(f"\nUploading {partition} data...")
+
+        for idx in tqdm(range(len(img_labels))):
             img_path = os.path.join(img_dir, img_labels[idx].split('.json')[0] + '.jpg')
             s3.upload_file(img_path, bucket, img_path)
 
